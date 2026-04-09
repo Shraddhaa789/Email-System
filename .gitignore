@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+Thumbs.db
+coverage/
+backend/node_modules/
+frontend/node_modules/
+frontend/dist/
+backend/server.log
+backend/server-error.log

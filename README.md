@@ -12,8 +12,8 @@ A fully responsive Email Replica Application simulating real-world email client 
 - 📅 Meeting Scheduler
 
 ## 🛠 Tech Stack
-- HTML / CSS / JavaScript (or your stack)
-- React / Next.js (if used)
+- HTML / CSS / JavaScript 
+- React / Next.js / Postgres / 
 
 ## 🎯 Purpose
 To replicate a real-world email system while integrating productivity features for better task and team management.

@@ -107,10 +107,10 @@ const MoreIcon = () => (
 );
 
 const buttonClass =
-  "inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12px] font-medium text-[#4d607c] transition hover:bg-[#eef4fb] hover:text-[#21344d]";
+  "inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium text-[#4d607c] transition hover:bg-[#eef4fb] hover:text-[#21344d]";
 
 const selectClass =
-  "rounded-[8px] border border-[#d7e0ee] bg-white px-2 py-1.5 text-[12px] font-medium text-[#4d607c] outline-none focus:border-[#8fb9e1]";
+  "rounded-full border border-[#d7e0ee] bg-white px-3 py-2 text-[12px] font-medium text-[#4d607c] outline-none focus:border-[#8fb9e1]";
 
 const quickStepOptions = [
   { value: "", label: "Quick steps" },
@@ -133,7 +133,14 @@ const moreOptions = [
 
 const MailActionBar = ({
   activeFolder,
+  bulkSelectionCount = 0,
   mail,
+  onBulkArchive,
+  onBulkDelete,
+  onBulkMove,
+  onBulkPermanentDelete,
+  onBulkReadToggle,
+  onClearSelection,
   onArchive,
   onDelete,
   onForward,
@@ -149,11 +156,81 @@ const MailActionBar = ({
   onStarToggle,
   onSweep,
 }) => {
+  if (bulkSelectionCount > 0) {
+    if (activeFolder === "trash") {
+      return (
+        <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className="mr-2 text-sm font-semibold text-[#41556f]">
+              {bulkSelectionCount} selected
+            </span>
+            <button onClick={() => onBulkMove?.("inbox")} className={buttonClass}>
+              <IconBox><MoveIcon /></IconBox>
+              <span>Undo</span>
+            </button>
+            <button
+              onClick={onBulkPermanentDelete}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium text-[#b14a45] transition hover:bg-[#fff1f0]"
+            >
+              <IconBox><DeleteIcon /></IconBox>
+              <span>Delete forever</span>
+            </button>
+            <button onClick={onClearSelection} className={buttonClass}>
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-5 py-3">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+          <span className="mr-2 text-sm font-semibold text-[#41556f]">
+            {bulkSelectionCount} selected
+          </span>
+          <button onClick={onBulkDelete} className={buttonClass}>
+            <IconBox><DeleteIcon /></IconBox>
+            <span>Delete</span>
+          </button>
+          <button onClick={onBulkArchive} className={buttonClass}>
+            <IconBox><ArchiveIcon /></IconBox>
+            <span>Archive</span>
+          </button>
+          <button onClick={onBulkReadToggle} className={buttonClass}>
+            <IconBox><ReadIcon /></IconBox>
+            <span>Read / Unread</span>
+          </button>
+          <label className="inline-flex items-center gap-1.5">
+            <IconBox><MoveIcon /></IconBox>
+            <select
+              defaultValue=""
+              onChange={(event) => {
+                onBulkMove?.(event.target.value);
+                event.target.value = "";
+              }}
+              className={selectClass}
+            >
+              <option value="">Move selected</option>
+              <option value="inbox">Inbox</option>
+              <option value="draft">Drafts</option>
+              <option value="archive">Archive</option>
+              <option value="trash">Trash</option>
+            </select>
+          </label>
+          <button onClick={onClearSelection} className={buttonClass}>
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!mail) return null;
 
   if (activeFolder === "trash") {
     return (
-      <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-4 py-2">
+      <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-5 py-3">
         <div className="flex items-center gap-2">
           <button onClick={() => onMove("inbox")} className={buttonClass}>
             <IconBox><MoveIcon /></IconBox>
@@ -161,7 +238,7 @@ const MailActionBar = ({
           </button>
           <button
             onClick={onPermanentDelete}
-            className="inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12px] font-medium text-[#b14a45] transition hover:bg-[#fff1f0]"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium text-[#b14a45] transition hover:bg-[#fff1f0]"
           >
             <IconBox><DeleteIcon /></IconBox>
             <span>Delete forever</span>
@@ -172,8 +249,8 @@ const MailActionBar = ({
   }
 
   return (
-    <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-4 py-2">
-      <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap">
+    <div className="mail-action-bar border-b border-[#dbe4f2] bg-white px-5 py-3">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
         <button onClick={onDelete} className={buttonClass}>
           <IconBox><DeleteIcon /></IconBox>
           <span>Delete</span>
@@ -186,7 +263,7 @@ const MailActionBar = ({
           <IconBox><SweepIcon /></IconBox>
           <span>Sweep</span>
         </button>
-        <div className="mx-1 h-5 w-px shrink-0 bg-[#d7e0ee]" />
+        <div className="mx-1 h-5 w-px shrink-0 bg-[#dfe7f2]" />
         <button onClick={onReply} className={buttonClass}>
           <IconBox><ReplyIcon /></IconBox>
           <span>Reply</span>

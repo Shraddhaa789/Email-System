@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./pages/Dashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import AuthPage from "./pages/AuthPage";
 
 const defaultSettings = {
   themeMode: "light",
-  accentColor: "#2473c1",
+  accentColor: "#157f86",
   themePreset: "classic",
   timeFormat: "12h",
   timezone: "Asia/Calcutta",
@@ -33,6 +34,15 @@ const getStoredSettings = () => {
   }
 };
 
+const getStoredUser = () => {
+  try {
+    const value = localStorage.getItem("user");
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+};
+
 const hexToRgb = (hex) => {
   const normalized = hex.replace("#", "");
   const value =
@@ -52,6 +62,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(
     Boolean(localStorage.getItem("token"))
   );
+  const [sessionUser, setSessionUser] = useState(getStoredUser);
   const [systemTheme, setSystemTheme] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   );
@@ -86,10 +97,23 @@ function App() {
   if (!isAuthenticated) {
     return (
       <AuthPage
-        onAuthenticated={() => setIsAuthenticated(true)}
+        onAuthenticated={(user) => {
+          setSessionUser(user);
+          setIsAuthenticated(true);
+        }}
         settings={settings}
         onSettingsChange={setSettings}
         onToggleTheme={toggleTheme}
+        theme={theme}
+      />
+    );
+  }
+
+  if (sessionUser?.accountRole === "admin") {
+    return (
+      <AdminDashboard
+        onToggleTheme={toggleTheme}
+        settings={settings}
         theme={theme}
       />
     );

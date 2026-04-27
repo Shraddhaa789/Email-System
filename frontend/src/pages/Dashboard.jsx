@@ -12,14 +12,27 @@ import PeopleView from "../components/PeopleView";
 import TasksView from "../components/TasksView";
 import ProfilePanel from "../components/ProfilePanel";
 import SettingsPanel from "../components/SettingsPanel";
+import { buildApiUrl, SOCKET_URL } from "../config/api";
 
-const calendarTodayKey = "2026-04-08";
+const padDatePart = (value) => String(value).padStart(2, "0");
+
+const getDateKey = (date) =>
+  `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+
+const addDays = (date, offset) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + offset);
+  return next;
+};
+
+const calendarTodayKey = getDateKey(new Date());
+const todayDate = new Date(`${calendarTodayKey}T09:00:00`);
 
 const initialMeetings = [
   {
     id: "meeting-1",
     title: "Inbox architecture review",
-    date: "2026-04-08",
+    date: getDateKey(todayDate),
     time: "09:30",
     attendees: "Maya, Lina, Product",
     agenda: "Review follow-up tasks for sent, drafts, and archive flows.",
@@ -28,7 +41,7 @@ const initialMeetings = [
   {
     id: "meeting-2",
     title: "Stakeholder rollout sync",
-    date: "2026-04-09",
+    date: getDateKey(addDays(todayDate, 1)),
     time: "13:00",
     attendees: "Ops, Delivery, Support",
     agenda: "Align deployment windows and confirm the communication plan.",
@@ -37,7 +50,7 @@ const initialMeetings = [
   {
     id: "meeting-3",
     title: "Delivery checklist standup",
-    date: "2026-04-10",
+    date: getDateKey(addDays(todayDate, 2)),
     time: "11:00",
     attendees: "Frontend, QA, Product",
     agenda: "Walk through delivery blockers and test coverage.",
@@ -53,6 +66,67 @@ const getStoredUser = () => {
     return null;
   }
 };
+
+const normalizeMailText = (value = "") =>
+  value
+    .replace(/\r\n/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const normalizeMailRecipients = (recipients = []) =>
+  (Array.isArray(recipients) ? recipients : [])
+    .map((entry) => entry?.email?.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(",");
+
+const buildMailDedupKey = (mail) => {
+  const createdAt = new Date(mail.createdAt);
+  const createdAtKey = Number.isNaN(createdAt.getTime())
+    ? ""
+    : new Date(Math.floor(createdAt.getTime() / 1000) * 1000).toISOString();
+
+  return [
+    mail.sender?.email?.trim().toLowerCase() || "",
+    mail.receiverId || "",
+    mail.folder || "",
+    normalizeMailText(mail.subject || ""),
+    normalizeMailText(mail.body || ""),
+    createdAtKey,
+    normalizeMailRecipients(mail.toRecipients),
+    normalizeMailRecipients(mail.ccRecipients),
+    normalizeMailRecipients(mail.bccRecipients),
+  ].join("|");
+};
+
+const mergeUniqueEmails = (incomingEmails = []) => {
+  const seen = new Set();
+
+  return incomingEmails.filter((mail) => {
+    const key = buildMailDedupKey(mail);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+};
+
+const RailToggleIcon = ({ isCollapsed }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+    <path d="M4 6.5h16" strokeLinecap="round" />
+    <path d="M4 12h16" strokeLinecap="round" />
+    <path d="M4 17.5h16" strokeLinecap="round" />
+    {isCollapsed ? (
+      <path d="M15.2 8.4L18 12l-2.8 3.6" strokeLinecap="round" strokeLinejoin="round" />
+    ) : (
+      <path d="M8.8 8.4L6 12l2.8 3.6" strokeLinecap="round" strokeLinejoin="round" />
+    )}
+  </svg>
+);
 
 const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
   const [emails, setEmails] = useState([]);
@@ -70,6 +144,9 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
   const [calendarSelection, setCalendarSelection] = useState(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [selectedMailIds, setSelectedMailIds] = useState([]);
+  const [mailboxSyncStatus, setMailboxSyncStatus] = useState(null);
 
   const folderLabels = {
     inbox: "Inbox",
@@ -82,6 +159,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
   useEffect(() => {
     const token = localStorage.getItem("token");
     let socket;
+    let pollTimer;
 
     const fetchEmails = async (folder) => {
       try {
@@ -93,7 +171,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
           trash: "trash",
         };
         const res = await axios.get(
-          `http://localhost:5000/api/email/${endpointMap[folder]}`,
+          buildApiUrl(`/email/${endpointMap[folder]}`),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -101,7 +179,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
           }
         );
 
-        setEmails(res.data);
+        setEmails(mergeUniqueEmails(res.data));
       } catch (error) {
         console.error("Fetch error:", error);
       }
@@ -110,22 +188,50 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (token) {
       fetchEmails(activeFolder);
 
-      socket = io("http://localhost:5000", {
+      pollTimer = window.setInterval(() => {
+        fetchEmails(activeFolder);
+      }, 30000);
+
+      socket = io(SOCKET_URL, {
         auth: { token },
       });
 
       socket.on("newEmail", (newMail) => {
         if (activeFolder === "inbox") {
-          setEmails((current) => [newMail, ...current]);
+          setEmails((current) => mergeUniqueEmails([newMail, ...current]));
         }
       });
     }
 
     return () => {
+      if (pollTimer) {
+        window.clearInterval(pollTimer);
+      }
       socket?.off("newEmail");
       socket?.disconnect();
     };
   }, [activeFolder, refreshTick]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      return;
+    }
+
+    axios
+      .get(buildApiUrl("/email/sync/status"), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      .then((response) => {
+        setMailboxSyncStatus(response.data);
+      })
+      .catch((error) => {
+        console.error("Mailbox status error:", error);
+      });
+  }, [refreshTick]);
 
   const visibleEmails = emails
     .filter((mail) => {
@@ -194,6 +300,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
 
   const handleMailDeleted = (id) => {
     setEmails((current) => current.filter((mail) => mail.id !== id));
+    setSelectedMailIds((current) => current.filter((mailId) => mailId !== id));
     if (selectedMailId === id) {
       setSelectedMailId(null);
     }
@@ -209,6 +316,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     }
 
     setEmails((current) => current.filter((mail) => mail.id !== updatedMail.id));
+    setSelectedMailIds((current) => current.filter((mailId) => mailId !== updatedMail.id));
     if (selectedMailId === updatedMail.id) {
       setSelectedMailId(null);
     }
@@ -220,6 +328,10 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     );
     setSelectedMailId(updatedMail.id);
   };
+
+  const selectedBulkIds = selectedMailIds.filter((id) =>
+    visibleEmails.some((mail) => mail.id === id)
+  );
 
   const counts = {
     inbox: activeFolder === "inbox" ? emails.length : 0,
@@ -236,10 +348,32 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     setRefreshTick((value) => value + 1);
   };
 
+  const handleSelectFolder = (folder) => {
+    setSelectedMailIds([]);
+    setSelectedMailId(null);
+    setIsComposeOpen(false);
+    setActiveFolder(folder);
+  };
+
   const requestConfig = {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("token")}`,
     },
+  };
+
+  const handleMailboxSync = async () => {
+    try {
+      const response = await axios.post(
+        buildApiUrl("/email/sync/now"),
+        {},
+        requestConfig
+      );
+
+      setMailboxSyncStatus(response.data);
+      refreshMailbox("inbox");
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const updateMailRequest = async (url, data = {}) => {
@@ -250,7 +384,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
   const handleDeleteMail = async () => {
     if (!selectedMail) return;
     try {
-      await axios.delete(`http://localhost:5000/api/email/${selectedMail.id}`, requestConfig);
+      await axios.delete(buildApiUrl(`/email/${selectedMail.id}`), requestConfig);
       handleMailDeleted(selectedMail.id);
     } catch (error) {
       console.error(error);
@@ -261,7 +395,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       await axios.delete(
-        `http://localhost:5000/api/email/permanent/${selectedMail.id}`,
+        buildApiUrl(`/email/permanent/${selectedMail.id}`),
         requestConfig
       );
       handleMailDeleted(selectedMail.id);
@@ -274,7 +408,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/archive/${selectedMail.id}`
+        buildApiUrl(`/email/archive/${selectedMail.id}`)
       );
       handleMailArchived(updated);
     } catch (error) {
@@ -286,7 +420,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/report/${selectedMail.id}`
+        buildApiUrl(`/email/report/${selectedMail.id}`)
       );
       handleMailArchived(updated);
     } catch (error) {
@@ -298,7 +432,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       await axios.post(
-        `http://localhost:5000/api/email/sweep/${selectedMail.id}`,
+        buildApiUrl(`/email/sweep/${selectedMail.id}`),
         {},
         requestConfig
       );
@@ -312,7 +446,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail || !folder) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/move/${selectedMail.id}`,
+        buildApiUrl(`/email/move/${selectedMail.id}`),
         { folder }
       );
 
@@ -334,7 +468,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/read/${selectedMail.id}`
+        buildApiUrl(`/email/read/${selectedMail.id}`)
       );
       handleMailUpdated(updated);
     } catch (error) {
@@ -346,7 +480,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/star/${selectedMail.id}`
+        buildApiUrl(`/email/star/${selectedMail.id}`)
       );
       handleMailUpdated(updated);
     } catch (error) {
@@ -358,7 +492,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!mail) return;
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/pin/${mail.id}`
+        buildApiUrl(`/email/pin/${mail.id}`)
       );
       setEmails((current) =>
         current.map((entry) => (entry.id === updated.id ? updated : entry))
@@ -380,7 +514,7 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
 
     try {
       const updated = await updateMailRequest(
-        `http://localhost:5000/api/email/read/${mail.id}`
+        buildApiUrl(`/email/read/${mail.id}`)
       );
       setEmails((current) =>
         current.map((entry) => (entry.id === updated.id ? updated : entry))
@@ -390,7 +524,68 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     }
   };
 
+  const handleToggleMailSelection = (mailId) => {
+    setSelectedMailIds((current) =>
+      current.includes(mailId)
+        ? current.filter((id) => id !== mailId)
+        : [...current, mailId]
+    );
+  };
+
+  const handleToggleAllVisible = (mailList) => {
+    const visibleIds = mailList.map((mail) => mail.id);
+    const areAllSelected =
+      visibleIds.length > 0 && visibleIds.every((id) => selectedMailIds.includes(id));
+
+    setSelectedMailIds((current) =>
+      areAllSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : [...new Set([...current, ...visibleIds])]
+    );
+  };
+
+  const runBulkAction = async (action) => {
+    if (selectedBulkIds.length === 0) return;
+
+    try {
+      await Promise.all(selectedBulkIds.map((id) => action(id)));
+      setSelectedMailIds([]);
+      if (selectedBulkIds.includes(selectedMailId)) {
+        setSelectedMailId(null);
+      }
+      refreshMailbox();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleBulkDelete = async () =>
+    runBulkAction((id) => axios.delete(buildApiUrl(`/email/${id}`), requestConfig));
+
+  const handleBulkPermanentDelete = async () =>
+    runBulkAction((id) =>
+      axios.delete(buildApiUrl(`/email/permanent/${id}`), requestConfig)
+    );
+
+  const handleBulkArchive = async () =>
+    runBulkAction((id) =>
+      axios.patch(buildApiUrl(`/email/archive/${id}`), {}, requestConfig)
+    );
+
+  const handleBulkReadToggle = async () =>
+    runBulkAction((id) =>
+      axios.patch(buildApiUrl(`/email/read/${id}`), {}, requestConfig)
+    );
+
+  const handleBulkMove = async (folder) => {
+    if (!folder) return;
+    await runBulkAction((id) =>
+      axios.patch(buildApiUrl(`/email/move/${id}`), { folder }, requestConfig)
+    );
+  };
+
   const openComposeForMail = (modeLabel, values) => {
+    setSelectedMailId(null);
     setComposeConfig({ modeLabel, values });
     setIsComposeOpen(true);
   };
@@ -442,18 +637,18 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     if (!selectedMail || !value) return;
     try {
       if (value === "archive-read") {
-        await updateMailRequest(`http://localhost:5000/api/email/read/${selectedMail.id}`);
+        await updateMailRequest(buildApiUrl(`/email/read/${selectedMail.id}`));
         const updated = await updateMailRequest(
-          `http://localhost:5000/api/email/archive/${selectedMail.id}`
+          buildApiUrl(`/email/archive/${selectedMail.id}`)
         );
         handleMailArchived(updated);
         return;
       }
 
       if (value === "star-archive") {
-        await updateMailRequest(`http://localhost:5000/api/email/star/${selectedMail.id}`);
+        await updateMailRequest(buildApiUrl(`/email/star/${selectedMail.id}`));
         const updated = await updateMailRequest(
-          `http://localhost:5000/api/email/archive/${selectedMail.id}`
+          buildApiUrl(`/email/archive/${selectedMail.id}`)
         );
         handleMailArchived({ ...updated, isStarred: true });
       }
@@ -462,10 +657,37 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
     }
   };
 
+  const handleDownloadAttachment = async (mail, attachment) => {
+    if (!mail?.id || !attachment?.id) {
+      return;
+    }
+
+    try {
+      const response = await axios.get(
+        buildApiUrl(`/email/${mail.id}/attachment/${attachment.id}`),
+        {
+          ...requestConfig,
+          responseType: "blob",
+        }
+      );
+
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = attachment.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
-    <div className="min-h-screen px-3 py-3 text-[#1a2942] md:px-5 md:py-5">
+    <div className="min-h-screen p-0 text-[#1a2942] md:p-2">
       <div
-        className={`theme-app-shell mx-auto flex min-h-[calc(100vh-24px)] max-w-[1600px] flex-col overflow-hidden rounded-[34px] border border-white/70 bg-white/55 shadow-[0_30px_80px_rgba(31,51,81,0.12)] backdrop-blur-sm ${
+        className={`theme-app-shell flex min-h-screen w-full flex-col overflow-hidden border border-white/70 bg-white/55 shadow-[0_30px_80px_rgba(31,51,81,0.12)] backdrop-blur-sm md:min-h-[calc(100vh-16px)] md:rounded-[30px] ${
           activeWorkspaceTab === "Mail" ? "lg:flex-row" : ""
         }`}
       >
@@ -473,12 +695,13 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
           <Sidebar
             activeFolder={activeFolder}
             counts={counts}
+            isCollapsed={isSidebarCollapsed}
             onCompose={() => {
               setComposeConfig(null);
               setIsComposeOpen(true);
             }}
             onOpenProfile={() => setIsProfileOpen(true)}
-            onSelectFolder={setActiveFolder}
+            onSelectFolder={handleSelectFolder}
             onSelectMeeting={(meeting) => {
               setCalendarSelection({
                 meetingId: meeting.id,
@@ -493,13 +716,17 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-w-0 flex-1 flex-col">
           <Topbar
             activeWorkspaceTab={activeWorkspaceTab}
             currentFilter={activeFilter}
             currentFolderLabel={folderLabels[activeFolder]}
             currentSort={activeSort}
+            isSidebarOpen={!isSidebarCollapsed}
+            mailboxSyncStatus={mailboxSyncStatus}
+            onMailboxSync={handleMailboxSync}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onToggleSidebar={() => setIsSidebarCollapsed((value) => !value)}
             onToggleTheme={onToggleTheme}
             onTabChange={setActiveWorkspaceTab}
             onFilterChange={setActiveFilter}
@@ -515,37 +742,65 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
                 emails={visibleEmails}
                 folderKey={activeFolder}
                 folderLabel={folderLabels[activeFolder]}
+                onToggleAllVisible={handleToggleAllVisible}
+                onToggleMailSelection={handleToggleMailSelection}
                 onTogglePin={handlePinToggle}
                 selectedMailId={selectedMail?.id}
+                selectedMailIds={selectedBulkIds}
                 timeFormat={settings.timeFormat}
                 timezone={settings.timezone}
                 onSelectMail={handleSelectMail}
               />
               <div className="flex min-h-0 flex-1 flex-col">
-                <MailActionBar
-                  activeFolder={activeFolder}
-                  mail={selectedMail}
-                  onArchive={handleArchiveMail}
-                  onDelete={handleDeleteMail}
-                  onForward={handleForward}
-                  onMove={handleMoveMail}
-                  onPermanentDelete={handlePermanentDeleteMail}
-                  onPinToggle={() => handlePinToggle(selectedMail)}
-                  onQuickStep={handleQuickStep}
-                  onReadToggle={handleReadToggle}
-                  onReply={handleReply}
-                  onReplyAll={handleReplyAll}
-                  onReport={handleReportMail}
-                  onShare={handleShare}
-                  onStarToggle={handleStarToggle}
-                  onSweep={handleSweepMail}
-                />
-                <MailView
-                  mail={selectedMail}
-                  onCloseMail={() => setSelectedMailId(null)}
-                  timeFormat={settings.timeFormat}
-                  timezone={settings.timezone}
-                />
+                {!isComposeOpen ? (
+                  <>
+                    <MailActionBar
+                      activeFolder={activeFolder}
+                      bulkSelectionCount={selectedBulkIds.length}
+                      mail={selectedMail}
+                      onBulkArchive={handleBulkArchive}
+                      onBulkDelete={handleBulkDelete}
+                      onBulkMove={handleBulkMove}
+                      onBulkPermanentDelete={handleBulkPermanentDelete}
+                      onBulkReadToggle={handleBulkReadToggle}
+                      onClearSelection={() => setSelectedMailIds([])}
+                      onArchive={handleArchiveMail}
+                      onDelete={handleDeleteMail}
+                      onForward={handleForward}
+                      onMove={handleMoveMail}
+                      onPermanentDelete={handlePermanentDeleteMail}
+                      onPinToggle={() => handlePinToggle(selectedMail)}
+                      onQuickStep={handleQuickStep}
+                      onReadToggle={handleReadToggle}
+                      onReply={handleReply}
+                      onReplyAll={handleReplyAll}
+                      onReport={handleReportMail}
+                      onShare={handleShare}
+                      onStarToggle={handleStarToggle}
+                      onSweep={handleSweepMail}
+                    />
+                    <MailView
+                      mail={selectedMail}
+                      onCloseMail={() => setSelectedMailId(null)}
+                      onDownloadAttachment={handleDownloadAttachment}
+                      timeFormat={settings.timeFormat}
+                      timezone={settings.timezone}
+                    />
+                  </>
+                ) : (
+                  <ComposeModal
+                    initialValues={composeConfig?.values}
+                    modeLabel={composeConfig?.modeLabel}
+                    onClose={() => setIsComposeOpen(false)}
+                    onSaved={(targetFolder) => {
+                      setIsComposeOpen(false);
+                      handleSelectFolder(targetFolder);
+                      setRefreshTick((value) => value + 1);
+                    }}
+                    settings={settings}
+                    variant="pane"
+                  />
+                )}
               </div>
             </div>
           ) : null}
@@ -569,18 +824,18 @@ const Dashboard = ({ onSettingsChange, onToggleTheme, settings, theme }) => {
         </main>
       </div>
 
-      {isComposeOpen && (
+      {isComposeOpen && activeWorkspaceTab !== "Mail" ? (
         <ComposeModal
           initialValues={composeConfig?.values}
           modeLabel={composeConfig?.modeLabel}
           onClose={() => setIsComposeOpen(false)}
           onSaved={(targetFolder) => {
-            setActiveFolder(targetFolder);
+            handleSelectFolder(targetFolder);
             setRefreshTick((value) => value + 1);
           }}
           settings={settings}
         />
-      )}
+      ) : null}
 
       {isProfileOpen ? (
         <ProfilePanel

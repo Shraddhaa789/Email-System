@@ -7,7 +7,7 @@ const categories = [
   "Notifications",
 ];
 
-const accentColors = ["#2473c1", "#f05a2a", "#cf2d4d", "#56a378", "#8a2be2", "#de4fa2"];
+const accentColors = ["#157f86", "#1f5eff", "#c7682f", "#2f8f63", "#b84b5f", "#7a6af0"];
 const signatureFontFamilies = ["Aptos", "Segoe UI", "Georgia", "Courier New"];
 const signatureFontSizes = [12, 14, 16, 18, 20];
 const signatureTextColors = ["#1d2c45", "#2473c1", "#0f766e", "#b14a45", "#7c3aed"];
@@ -540,7 +540,7 @@ const EmailSettings = ({ settings, onSettingsChange }) => {
               </div>
               <div className="flex items-center gap-3">
                 <p className="hidden text-sm font-medium text-[#5d6f8a] md:block">
-                  {currentUser?.email || "user@workspace.app"}
+                  {currentUser?.email || "user@aksentt.app"}
                 </p>
                 <button
                   onClick={() => setEditorState(null)}

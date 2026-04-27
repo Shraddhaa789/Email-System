@@ -12,20 +12,29 @@ model User {
   email        String   @unique
   password     String
   name         String?
+  accountRole  String   @default("user")
+  userType     String   @default("member")
   role         String?
   team         String?
   workingHours String?
   location     String?
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  deletedAt    DateTime?
 
   sentEmails     Email[] @relation("SentEmails")
   receivedEmails Email[] @relation("ReceivedEmails")
+  groupMemberships GroupMember[]
+  managedGroups    UserGroup[]   @relation("GroupOwner")
 }
 
 model Email {
   id          String   @id @default(uuid())
   subject     String
   body        String
+  attachments String   @default("[]")
+  toRecipients String  @default("[]")
+  ccRecipients String  @default("[]")
+  bccRecipients String @default("[]")
   senderId    String
   receiverId  String
   isRead      Boolean  @default(false)
@@ -37,4 +46,34 @@ model Email {
 
   sender   User @relation("SentEmails", fields: [senderId], references: [id])
   receiver User @relation("ReceivedEmails", fields: [receiverId], references: [id])
+}
+
+model UserGroup {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  slug        String        @unique
+  description String?
+  createdAt   DateTime      @default(now())
+  ownerId     String?
+
+  owner       User?         @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  memberships GroupMember[]
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model MailDomain {
+  id        String   @id @default(uuid())
+  domain    String   @unique
+  createdAt DateTime @default(now())
 }

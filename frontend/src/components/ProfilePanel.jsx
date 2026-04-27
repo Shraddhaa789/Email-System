@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import axios from "axios";
+import { buildApiUrl } from "../config/api";
 
 const tabs = ["Overview", "Contact", "Organization", "Files"];
 
@@ -70,12 +71,7 @@ const ProfilePanel = ({ onClose, onUserUpdated, user }) => {
   const [availability, setAvailability] = useState({
     workingHours: user?.workingHours || "9:00 AM - 6:00 PM",
   });
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-  });
   const [profileMessage, setProfileMessage] = useState("");
-  const [passwordMessage, setPasswordMessage] = useState("");
   const [error, setError] = useState("");
 
   const requestConfig = useMemo(
@@ -102,7 +98,7 @@ const ProfilePanel = ({ onClose, onUserUpdated, user }) => {
 
     try {
       const response = await axios.patch(
-        "http://localhost:5000/api/auth/me",
+        buildApiUrl("/auth/me"),
         {
           name: profile.name,
           role: profile.role,
@@ -125,31 +121,6 @@ const ProfilePanel = ({ onClose, onUserUpdated, user }) => {
         err.response?.data?.message ||
           err.response?.data?.error ||
           "Unable to update profile."
-      );
-    }
-  };
-
-  const savePassword = async () => {
-    setError("");
-    setPasswordMessage("");
-
-    try {
-      const response = await axios.patch(
-        "http://localhost:5000/api/auth/change-password",
-        passwordForm,
-        requestConfig
-      );
-
-      setPasswordForm({
-        currentPassword: "",
-        newPassword: "",
-      });
-      setPasswordMessage(response.data.message);
-    } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          err.response?.data?.error ||
-          "Unable to change password."
       );
     }
   };
@@ -311,53 +282,6 @@ const ProfilePanel = ({ onClose, onUserUpdated, user }) => {
 
                 {profileMessage ? (
                   <p className="mt-3 text-sm font-medium text-[#2f7b56]">{profileMessage}</p>
-                ) : null}
-              </div>
-
-              <div className="mt-6 rounded-[22px] border border-[#dfe7f2] bg-white p-5">
-                <h3 className="text-[1.3rem] font-semibold text-[#1a2a42]">
-                  Security
-                </h3>
-                <p className="mt-2 text-sm text-[#73829a]">
-                  Change your password for this workspace account.
-                </p>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  <input
-                    type="password"
-                    value={passwordForm.currentPassword}
-                    onChange={(event) =>
-                      setPasswordForm((current) => ({
-                        ...current,
-                        currentPassword: event.target.value,
-                      }))
-                    }
-                    placeholder="Current password"
-                    className="h-12 rounded-[16px] border border-[#d7e0ee] bg-[#f7fafe] px-4 text-[15px] text-[#21314d] outline-none focus:border-[#8fb9e1] focus:bg-white"
-                  />
-                  <input
-                    type="password"
-                    value={passwordForm.newPassword}
-                    onChange={(event) =>
-                      setPasswordForm((current) => ({
-                        ...current,
-                        newPassword: event.target.value,
-                      }))
-                    }
-                    placeholder="New password"
-                    className="h-12 rounded-[16px] border border-[#d7e0ee] bg-[#f7fafe] px-4 text-[15px] text-[#21314d] outline-none focus:border-[#8fb9e1] focus:bg-white"
-                  />
-                </div>
-
-                <button
-                  onClick={savePassword}
-                  className="mt-5 rounded-[16px] border border-[#d7e0ee] bg-white px-5 py-3 text-sm font-semibold text-[#36506f]"
-                >
-                  Update password
-                </button>
-
-                {passwordMessage ? (
-                  <p className="mt-3 text-sm font-medium text-[#2f7b56]">{passwordMessage}</p>
                 ) : null}
               </div>
             </div>

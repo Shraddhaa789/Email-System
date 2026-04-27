@@ -1,22 +1,58 @@
 import prisma from "../config/db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { serializeUser } from "../utils/user.utils.js";
+import { getAdminPreferences } from "../utils/adminPreferences.js";
 
-const serializeUser = (user) => ({
-  id: user.id,
-  email: user.email,
-  name: user.name,
-  role: user.role,
-  team: user.team,
-  workingHours: user.workingHours,
-  location: user.location,
-  createdAt: user.createdAt,
-});
+const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@aksentt.app";
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const DEFAULT_ADMIN_NAME = process.env.ADMIN_NAME || "Aksentt Admin";
 
 const createToken = (user) =>
-  jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, {
+  jwt.sign({ id: user.id, email: user.email, accountRole: user.accountRole }, process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
+
+const ensureDefaultAdminExists = async () => {
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: DEFAULT_ADMIN_EMAIL },
+  });
+
+  if (existingAdmin) {
+    if (existingAdmin.accountRole === "admin") {
+      return existingAdmin;
+    }
+
+    return prisma.user.update({
+      where: { id: existingAdmin.id },
+      data: {
+        accountRole: "admin",
+        userType: "member",
+        name: existingAdmin.name || DEFAULT_ADMIN_NAME,
+        role: existingAdmin.role || "Administrator",
+        team: existingAdmin.team || "Admin",
+        workingHours: existingAdmin.workingHours || "9:00 AM - 6:00 PM",
+        location: existingAdmin.location || "HQ",
+      },
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+
+  return prisma.user.create({
+    data: {
+      email: DEFAULT_ADMIN_EMAIL,
+      password: hashedPassword,
+      name: DEFAULT_ADMIN_NAME,
+      accountRole: "admin",
+      userType: "member",
+      role: "Administrator",
+      team: "Admin",
+      workingHours: "9:00 AM - 6:00 PM",
+      location: "HQ",
+    },
+  });
+};
 
 const upsertDemoUser = async ({ email, password, name }) => {
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -25,6 +61,8 @@ const upsertDemoUser = async ({ email, password, name }) => {
     where: { email },
     update: {
       name,
+      accountRole: "user",
+      userType: "member",
       role: "Product Designer",
       team: "Workspace",
       workingHours: "9:30 AM - 6:30 PM",
@@ -34,6 +72,8 @@ const upsertDemoUser = async ({ email, password, name }) => {
     create: {
       email,
       name,
+      accountRole: "user",
+      userType: "member",
       role: "Product Designer",
       team: "Workspace",
       workingHours: "9:30 AM - 6:30 PM",
@@ -81,6 +121,8 @@ const ensureDemoEmail = async ({
 
 export const register = async (req, res) => {
   try {
+    await ensureDefaultAdminExists();
+
     const { email, password, name } = req.body;
 
     const existingUser = await prisma.user.findUnique({
@@ -98,6 +140,8 @@ export const register = async (req, res) => {
         email,
         password: hashedPassword,
         name,
+        accountRole: "user",
+        userType: "member",
         role: "Team member",
         team: "Workspace",
         workingHours: "9:00 AM - 6:00 PM",
@@ -113,6 +157,8 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
+    await ensureDefaultAdminExists();
+
     const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({
@@ -145,11 +191,33 @@ export const getProfile = async (req, res) => {
       where: { id: req.user.id },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return res.status(404).json({ message: "User not found" });
     }
 
     res.json({ user: serializeUser(user) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const listDirectory = async (_req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        accountRole: {
+          not: "admin",
+        },
+      },
+      orderBy: [
+        { role: "asc" },
+        { name: "asc" },
+        { email: "asc" },
+      ],
+    });
+
+    res.json(users.map(serializeUser));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -195,7 +263,7 @@ export const changePassword = async (req, res) => {
       where: { id: req.user.id },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return res.status(404).json({ message: "User not found" });
     }
 
@@ -234,7 +302,7 @@ export const forgotPassword = async (req, res) => {
       where: { email },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return res.status(404).json({ message: "User not found" });
     }
 
@@ -251,14 +319,24 @@ export const forgotPassword = async (req, res) => {
   }
 };
 
+export const getMailPreferences = async (_req, res) => {
+  try {
+    const preferences = await getAdminPreferences();
+    res.json(preferences);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const seedDemoWorkspace = async (_req, res) => {
   try {
+    const adminUser = await ensureDefaultAdminExists();
     const demoPassword = "demo123";
     const [shraddha, maya, rohan, azure] = await Promise.all([
       upsertDemoUser({
-        email: "user@workspace.app",
+        email: "user@aksentt.app",
         password: demoPassword,
-        name: "Workspace User",
+        name: "Aksentt User",
       }),
       upsertDemoUser({
         email: "maya@northstar.design",
@@ -343,6 +421,10 @@ export const seedDemoWorkspace = async (_req, res) => {
       message: "Demo workspace ready",
       token: createToken(shraddha),
       user: serializeUser(shraddha),
+      adminCredentials: {
+        email: adminUser.email,
+        password: DEFAULT_ADMIN_PASSWORD,
+      },
       credentials: {
         email: shraddha.email,
         password: demoPassword,

@@ -1,32 +1,61 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-const selectedDateKey = "2026-04-08";
-const weekDays = [
-  { key: "2026-04-07", label: "Tue", day: "07" },
-  { key: "2026-04-08", label: "Wed", day: "08" },
-  { key: "2026-04-09", label: "Thu", day: "09" },
-  { key: "2026-04-10", label: "Fri", day: "10" },
-  { key: "2026-04-11", label: "Sat", day: "11" },
-];
+const padDatePart = (value) => String(value).padStart(2, "0");
 
-const miniCalendarDays = [
-  "",
-  "1",
-  "2",
-  "3",
-  "4",
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "10",
-  "11",
-  "12",
-  "13",
-];
+const getDateKey = (date) =>
+  `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
-const createEmptyForm = (date = selectedDateKey) => ({
+const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const addDays = (date, offset) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + offset);
+  return next;
+};
+
+const getWeekStart = (date) => {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  return next;
+};
+
+const buildWeekDays = (date) => {
+  const weekStart = getWeekStart(date);
+  return Array.from({ length: 5 }, (_, index) => {
+    const current = addDays(weekStart, index);
+    return {
+      key: getDateKey(current),
+      label: current.toLocaleDateString([], { weekday: "short" }),
+      day: padDatePart(current.getDate()),
+      isToday: getDateKey(current) === getDateKey(new Date()),
+    };
+  });
+};
+
+const buildMonthGrid = (date) => {
+  const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+  const startIndex = firstDay.getDay();
+  const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const grid = [];
+
+  for (let index = 0; index < startIndex; index += 1) {
+    grid.push(null);
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    grid.push(new Date(date.getFullYear(), date.getMonth(), day));
+  }
+
+  while (grid.length % 7 !== 0) {
+    grid.push(null);
+  }
+
+  return grid;
+};
+
+const createEmptyForm = (date = getDateKey(new Date())) => ({
   title: "",
   date,
   time: "11:30",
@@ -48,15 +77,32 @@ const formatMeetingDate = (date, time, timeFormat, timezone) =>
   });
 
 const formatTime = (time, timeFormat, timezone) =>
-  new Date(`2026-04-08T${time}`).toLocaleTimeString([], {
+  new Date(`2000-01-01T${time}`).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
     hour12: timeFormat !== "24h",
     timeZone: timezone,
   });
 
+const formatFullDate = (date, timezone) =>
+  new Intl.DateTimeFormat("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: timezone,
+  }).format(date);
+
+const formatCurrentTime = (date, timeFormat, timezone) =>
+  new Intl.DateTimeFormat("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: timeFormat !== "24h",
+    timeZone: timezone,
+  }).format(date);
+
 const shellCard =
-  "rounded-[26px] border border-[#dfe7f2] bg-white shadow-[0_18px_38px_rgba(27,44,74,0.06)]";
+  "rounded-[24px] border border-[#dfe7f2] bg-white shadow-[0_18px_38px_rgba(27,44,74,0.05)]";
 
 const CalendarView = ({
   focusedMeeting,
@@ -65,10 +111,11 @@ const CalendarView = ({
   timeFormat = "12h",
   timezone = "Asia/Calcutta",
 }) => {
+  const todayKey = getDateKey(new Date());
   const initialFocusedMeeting = focusedMeeting
     ? meetings.find((meeting) => meeting.id === focusedMeeting.meetingId)
     : null;
-  const initialDate = initialFocusedMeeting?.date || focusedMeeting?.date || selectedDateKey;
+  const initialDate = initialFocusedMeeting?.date || focusedMeeting?.date || todayKey;
 
   const [activeDate, setActiveDate] = useState(initialDate);
   const [form, setForm] = useState(
@@ -84,6 +131,32 @@ const CalendarView = ({
       : createEmptyForm(initialDate)
   );
   const [editingMeetingId, setEditingMeetingId] = useState(initialFocusedMeeting?.id || null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!focusedMeeting) {
+      return;
+    }
+
+    const nextMeeting = meetings.find((meeting) => meeting.id === focusedMeeting.meetingId);
+    const nextDate = nextMeeting?.date || focusedMeeting.date;
+
+    if (!nextDate) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setActiveDate((current) => (current === nextDate ? current : nextDate));
+      setForm((current) => (current.date === nextDate ? current : { ...current, date: nextDate }));
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [focusedMeeting, meetings]);
 
   const sortedMeetings = useMemo(
     () =>
@@ -94,17 +167,26 @@ const CalendarView = ({
     [meetings]
   );
 
+  const currentDate = useMemo(() => new Date(`${activeDate}T00:00:00`), [activeDate]);
+  const weekDays = useMemo(() => buildWeekDays(currentDate), [currentDate]);
+  const monthGrid = useMemo(() => buildMonthGrid(currentDate), [currentDate]);
+
   const meetingsByDay = useMemo(
     () =>
       weekDays.reduce((accumulator, day) => {
         accumulator[day.key] = sortedMeetings.filter((meeting) => meeting.date === day.key);
         return accumulator;
       }, {}),
-    [sortedMeetings]
+    [sortedMeetings, weekDays]
   );
 
-  const upcomingMeetings = sortedMeetings.filter((meeting) => meeting.date >= activeDate);
+  const upcomingMeetings = sortedMeetings.filter((meeting) => meeting.date >= todayKey);
   const todaysMeetings = sortedMeetings.filter((meeting) => meeting.date === activeDate);
+  const currentWeekMeetings = sortedMeetings.filter((meeting) =>
+    weekDays.some((day) => day.key === meeting.date)
+  );
+  const nextMeeting = upcomingMeetings[0] || null;
+  const activeDateLabel = formatFullDate(currentDate, timezone);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -163,36 +245,51 @@ const CalendarView = ({
   };
 
   return (
-    <section className="calendar-view-shell flex-1 bg-[#fbfdff] p-6">
-      <div className="mb-6 grid gap-4 lg:grid-cols-3">
-        <div className={`calendar-shell-card ${shellCard} px-5 py-4`}>
+    <section className="calendar-view-shell flex-1 bg-[linear-gradient(180deg,#f8fbff_0%,#f5f8fd_100%)] p-5 md:p-6">
+      <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.8fr)_minmax(260px,0.8fr)]">
+        <div className={`calendar-shell-card ${shellCard} px-5 py-5`}>
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#8b9bb4]">
-            Focus day
+            Live now
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[#1a2a42]">
-            {new Date(`${activeDate}T00:00:00`).toLocaleDateString([], {
-              day: "numeric",
-              month: "long",
-            })}
-          </p>
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-3xl font-semibold tracking-[-0.03em] text-[#1a2a42]">
+                {formatCurrentTime(now, timeFormat, timezone)}
+              </p>
+              <p className="mt-1 text-sm text-[#6f819d]">{formatFullDate(now, timezone)}</p>
+            </div>
+            <span className="rounded-full bg-[#edf5ff] px-3 py-1 text-xs font-semibold text-[#2473c1]">
+              {timezone}
+            </span>
+          </div>
         </div>
-        <div className={`calendar-shell-card ${shellCard} px-5 py-4`}>
+        <div className={`calendar-shell-card ${shellCard} px-5 py-5`}>
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#8b9bb4]">
-            Today
+            Selected day
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[#1a2a42]">{todaysMeetings.length}</p>
-          <p className="mt-1 text-sm text-[#73829a]">meetings on the selected day</p>
+          <p className="mt-3 text-[1.9rem] font-semibold tracking-[-0.03em] text-[#1a2a42]">
+            {todaysMeetings.length}
+          </p>
+          <p className="mt-1 text-sm text-[#73829a]">{activeDateLabel}</p>
         </div>
-        <div className={`calendar-shell-card ${shellCard} px-5 py-4`}>
+        <div className={`calendar-shell-card ${shellCard} px-5 py-5`}>
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#8b9bb4]">
-            Upcoming
+            Next up
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[#1a2a42]">{upcomingMeetings.length}</p>
-          <p className="mt-1 text-sm text-[#73829a]">scheduled sessions ahead</p>
+          {nextMeeting ? (
+            <>
+              <p className="mt-3 text-lg font-semibold text-[#1a2a42]">{nextMeeting.title}</p>
+              <p className="mt-1 text-sm text-[#73829a]">
+                {formatMeetingDate(nextMeeting.date, nextMeeting.time, timeFormat, timezone)}
+              </p>
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-[#73829a]">No upcoming meetings scheduled.</p>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-6 2xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+      <div className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <div className={`calendar-shell-card ${shellCard} p-5`}>
             <div className="flex items-center justify-between gap-3">
@@ -201,16 +298,16 @@ const CalendarView = ({
                   Planner
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold text-[#1a2a42]">
-                  April 2026
+                  {currentDate.toLocaleDateString([], { month: "long", year: "numeric" })}
                 </h2>
               </div>
 
               <button
                 onClick={() => {
-                  setActiveDate(selectedDateKey);
-                  resetForm(selectedDateKey);
+                  setActiveDate(todayKey);
+                  resetForm(todayKey);
                 }}
-                className="rounded-[14px] bg-[#2473c1] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(36,115,193,0.18)]"
+                className="rounded-[14px] bg-[#2473c1] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(36,115,193,0.16)]"
               >
                 Today
               </button>
@@ -226,28 +323,31 @@ const CalendarView = ({
                 </span>
               ))}
 
-              {miniCalendarDays.map((day, index) => {
-                const dateValue = day ? `2026-04-${day.padStart(2, "0")}` : "";
-                const isSelected = dateValue === activeDate;
+              {monthGrid.map((dateValue, index) => {
+                const dateKey = dateValue ? getDateKey(dateValue) : "";
+                const isSelected = dateKey === activeDate;
+                const isToday = dateKey === todayKey;
 
                 return (
                   <button
-                    key={`${day || "empty"}-${index}`}
-                    disabled={!day}
+                    key={`${dateKey || "empty"}-${index}`}
+                    disabled={!dateValue}
                     onClick={() => {
-                      if (!dateValue) return;
-                      setActiveDate(dateValue);
-                      updateField("date", dateValue);
+                      if (!dateKey) return;
+                      setActiveDate(dateKey);
+                      updateField("date", dateKey);
                     }}
                     className={`h-10 rounded-[12px] text-sm font-semibold transition ${
-                      !day
+                      !dateValue
                         ? "cursor-default bg-transparent"
                         : isSelected
                         ? "bg-[#2473c1] text-white"
-                        : "bg-[#f7fafe] text-[#5c7191] hover:bg-[#eaf3fd]"
+                        : isToday
+                        ? "bg-[#eaf3fd] text-[#2473c1]"
+                        : "bg-[#f7fafe] text-[#5c7191] hover:bg-[#eef4fb]"
                     }`}
                   >
-                    {day}
+                    {dateValue?.getDate() || ""}
                   </button>
                 );
               })}
@@ -258,7 +358,7 @@ const CalendarView = ({
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b9bb4]">
               Today
             </p>
-            <h3 className="mt-2 text-[1.65rem] font-semibold text-[#1a2a42]">
+            <h3 className="mt-2 text-[1.65rem] font-semibold tracking-[-0.02em] text-[#1a2a42]">
               Daily focus
             </h3>
 
@@ -271,7 +371,7 @@ const CalendarView = ({
                 todaysMeetings.map((meeting) => (
                   <div
                     key={meeting.id}
-                    className="rounded-[18px] border border-[#e2eaf4] bg-[#f8fbff] p-4"
+                    className="rounded-[18px] border border-[#e2eaf4] bg-[linear-gradient(180deg,#fbfdff_0%,#f6faff_100%)] p-4"
                   >
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#2574c4]">
                       {formatTime(meeting.time, timeFormat, timezone)}
@@ -293,12 +393,12 @@ const CalendarView = ({
               <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b9bb4]">
                 Calendar
               </p>
-              <h2 className="mt-2 text-3xl font-semibold text-[#1a2a42]">
+              <h2 className="mt-2 text-[2.1rem] font-semibold tracking-[-0.04em] text-[#1a2a42]">
                 Week view
               </h2>
             </div>
             <span className="rounded-full bg-[#eaf3fd] px-4 py-2 text-sm font-semibold text-[#2574c4]">
-              {sortedMeetings.length} meetings
+              {currentWeekMeetings.length} this week
             </span>
           </div>
 
@@ -320,7 +420,14 @@ const CalendarView = ({
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8b9bb4]">
                     {day.label}
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-[#1a2a42]">{day.day}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <p className="text-xl font-semibold text-[#1a2a42]">{day.day}</p>
+                    {day.isToday ? (
+                      <span className="rounded-full bg-[#2473c1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+                        Today
+                      </span>
+                    ) : null}
+                  </div>
                 </button>
               ))}
 
@@ -339,7 +446,7 @@ const CalendarView = ({
                       <div
                         key={`${day.key}-${hour}`}
                         className={`min-h-[88px] border-b border-l border-[#dfe7f2] p-2.5 ${
-                          activeDate === day.key ? "bg-[#fcfdff]" : "bg-white"
+                          activeDate === day.key ? "bg-[#fbfdff]" : "bg-white"
                         }`}
                       >
                         <div className="space-y-2">
@@ -347,7 +454,7 @@ const CalendarView = ({
                             <button
                               key={meeting.id}
                               onClick={() => editMeeting(meeting)}
-                              className="w-full rounded-[14px] bg-[#2473c1] px-3 py-2.5 text-left text-white shadow-[0_10px_18px_rgba(36,115,193,0.15)]"
+                              className="w-full rounded-[16px] bg-[linear-gradient(180deg,#4d91d6_0%,#357bc4_100%)] px-3 py-3 text-left text-white shadow-[0_10px_20px_rgba(36,115,193,0.14)] transition hover:-translate-y-0.5"
                             >
                               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/80">
                                 {formatTime(meeting.time, timeFormat, timezone)}
@@ -374,9 +481,12 @@ const CalendarView = ({
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b9bb4]">
               Schedule meeting
             </p>
-            <h2 className="mt-2 text-[1.65rem] font-semibold text-[#1a2a42]">
+            <h2 className="mt-2 text-[1.65rem] font-semibold tracking-[-0.02em] text-[#1a2a42]">
               {editingMeetingId ? "Edit session" : "Book a new session"}
             </h2>
+            <p className="mt-2 text-sm text-[#73829a]">
+              Keep meeting details short and clear so the schedule stays easy to scan.
+            </p>
 
             <div className="mt-5 grid gap-4">
               <input
@@ -447,49 +557,55 @@ const CalendarView = ({
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b9bb4]">
               Upcoming meetings
             </p>
-            <h2 className="mt-2 text-[1.65rem] font-semibold text-[#1a2a42]">
+            <h2 className="mt-2 text-[1.65rem] font-semibold tracking-[-0.02em] text-[#1a2a42]">
               Scheduled sessions
             </h2>
 
             <div className="mt-5 space-y-3">
-              {upcomingMeetings.map((meeting) => (
-                <div
-                  key={meeting.id}
-                  className="rounded-[18px] border border-[#e2eaf4] bg-[#f8fbff] p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[16px] font-semibold text-[#1d2c45]">
-                        {meeting.title}
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-[#2574c4]">
-                        {formatMeetingDate(meeting.date, meeting.time, timeFormat, timezone)}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#6c7c95]">
-                      {meeting.attendees}
-                    </span>
-                  </div>
-
-                  <p className="mt-3 text-sm text-[#5f7495]">{meeting.location}</p>
-                  <p className="mt-2 text-sm leading-6 text-[#7585a0]">{meeting.agenda}</p>
-
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      onClick={() => editMeeting(meeting)}
-                      className="rounded-[14px] border border-[#cfe0f4] bg-white px-4 py-2 text-sm font-semibold text-[#2473c1]"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteMeeting(meeting.id)}
-                      className="rounded-[14px] border border-[#ead4d1] bg-white px-4 py-2 text-sm font-semibold text-[#b14a45]"
-                    >
-                      Delete
-                    </button>
-                  </div>
+              {upcomingMeetings.length === 0 ? (
+                <div className="rounded-[18px] border border-dashed border-[#d7e0ee] bg-[#fbfdff] px-4 py-5 text-sm text-[#7b8aa4]">
+                  No meetings are scheduled yet.
                 </div>
-              ))}
+              ) : (
+                upcomingMeetings.map((meeting) => (
+                  <div
+                    key={meeting.id}
+                    className="rounded-[18px] border border-[#e2eaf4] bg-[linear-gradient(180deg,#fbfdff_0%,#f6faff_100%)] p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[16px] font-semibold text-[#1d2c45]">
+                          {meeting.title}
+                        </p>
+                        <p className="mt-1 text-sm font-medium text-[#2574c4]">
+                          {formatMeetingDate(meeting.date, meeting.time, timeFormat, timezone)}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#6c7c95]">
+                        {meeting.attendees}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-sm text-[#5f7495]">{meeting.location}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#7585a0]">{meeting.agenda}</p>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        onClick={() => editMeeting(meeting)}
+                        className="rounded-[14px] border border-[#cfe0f4] bg-white px-4 py-2 text-sm font-semibold text-[#2473c1]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteMeeting(meeting.id)}
+                        className="rounded-[14px] border border-[#ead4d1] bg-white px-4 py-2 text-sm font-semibold text-[#b14a45]"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

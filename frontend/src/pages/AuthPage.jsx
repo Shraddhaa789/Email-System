@@ -1,7 +1,8 @@
 import { useState } from "react";
 import axios from "axios";
+import { buildApiUrl } from "../config/api";
 
-const API_URL = "http://localhost:5000/api/auth";
+const API_URL = buildApiUrl("/auth");
 
 const featureCards = [
   {
@@ -40,9 +41,7 @@ const storeSession = ({ token, user }) => {
 };
 
 const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
-  const [mode, setMode] = useState("login");
   const [form, setForm] = useState({
-    name: "",
     email: "",
     password: "",
   });
@@ -69,30 +68,13 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
     setIsSubmitting(true);
 
     try {
-      if (mode === "login") {
-        const response = await axios.post(`${API_URL}/login`, {
-          email: form.email,
-          password: form.password,
-        });
-
-        storeSession(response.data);
-        onAuthenticated();
-        return;
-      }
-
-      await axios.post(`${API_URL}/register`, {
-        name: form.name,
+      const response = await axios.post(`${API_URL}/login`, {
         email: form.email,
         password: form.password,
       });
 
-      const loginResponse = await axios.post(`${API_URL}/login`, {
-        email: form.email,
-        password: form.password,
-      });
-
-      storeSession(loginResponse.data);
-      onAuthenticated();
+      storeSession(response.data);
+      onAuthenticated(response.data.user);
     } catch (err) {
       setError(err.response?.data?.message || err.response?.data?.error || "Something went wrong.");
     } finally {
@@ -121,26 +103,26 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
   };
 
   return (
-    <div className="auth-page-shell min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.96),transparent_28%),linear-gradient(180deg,#dfe9f7_0%,#edf3fb_46%,#f4f7fc_100%)] px-4 py-6 text-[#1a2942] md:px-8 md:py-8">
+    <div className="auth-page-shell min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,249,242,0.96),transparent_24%),radial-gradient(circle_at_top_right,rgba(220,242,240,0.92),transparent_28%),linear-gradient(180deg,#eef4f3_0%,#f6f7f4_46%,#f8faf8_100%)] px-4 py-6 text-[#1a2942] md:px-8 md:py-8">
       <div className="mx-auto mb-4 flex max-w-[1480px] justify-end">
         <button
           onClick={onToggleTheme}
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           title={theme === "dark" ? "Light mode" : "Dark mode"}
-          className="auth-theme-toggle flex h-11 w-11 items-center justify-center rounded-full border border-[#d7e0ee] bg-white text-[#52647f] shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition hover:bg-[#eef4fb]"
+          className="auth-theme-toggle flex h-11 w-11 items-center justify-center rounded-full border border-[#d7e0ee] bg-white text-[#52647f] shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition hover:bg-[#eef6f4]"
         >
           {theme === "dark" ? <SunIcon /> : <MoonIcon />}
         </button>
       </div>
 
       <div className="theme-app-shell mx-auto grid min-h-[calc(100vh-48px)] max-w-[1480px] overflow-hidden rounded-[34px] border border-white/70 bg-white/60 shadow-[0_30px_80px_rgba(31,51,81,0.12)] backdrop-blur-sm lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="auth-hero-section relative overflow-hidden bg-[linear-gradient(180deg,#edf4fb_0%,#e7eef8_100%)] p-8 md:p-12">
+        <section className="auth-hero-section relative overflow-hidden bg-[linear-gradient(180deg,#edf4f2_0%,#e7efed_100%)] p-8 md:p-12">
           <div className="absolute left-[-10%] top-[-8%] h-64 w-64 rounded-full bg-white/40 blur-3xl" />
-          <div className="absolute bottom-[-8%] right-[-6%] h-72 w-72 rounded-full bg-[#d3e4f8] blur-3xl" />
+          <div className="absolute bottom-[-8%] right-[-6%] h-72 w-72 rounded-full bg-[#d8ebe6] blur-3xl" />
 
           <div className="relative z-10 max-w-xl">
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#7c8ba5]">
-              Workspace Mail
+              Aksentt Mail
             </p>
             <h1 className="mt-4 text-5xl font-semibold leading-[1.02] text-[#16253d]">
               Make work feel a little lighter.
@@ -173,46 +155,11 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
                 <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#7c8ba5]">
                   Access
                 </p>
-                <h2 className="mt-2 text-3xl font-semibold text-[#16253d]">
-                  {mode === "login" ? "Welcome back" : "Create your workspace"}
-                </h2>
-              </div>
-
-              <div className="auth-mode-switch rounded-full bg-[#eef3fa] p-1">
-                <button
-                  onClick={() => setMode("login")}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                    mode === "login" ? "bg-[#2473c1] text-white" : "text-[#74839d]"
-                  }`}
-                >
-                  Login
-                </button>
-                <button
-                  onClick={() => setMode("register")}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                    mode === "register" ? "bg-[#2473c1] text-white" : "text-[#74839d]"
-                  }`}
-                >
-                  Register
-                </button>
+                <h2 className="mt-2 text-3xl font-semibold text-[#16253d]">Welcome back</h2>
               </div>
             </div>
 
             <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
-              {mode === "register" ? (
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#4e5f7a]">
-                    Full name
-                  </label>
-                  <input
-                    value={form.name}
-                    onChange={(event) => updateField("name", event.target.value)}
-                    placeholder="Your full name"
-                    className="h-12 w-full rounded-[16px] border border-[#d7e0ee] bg-[#f7fafe] px-4 text-[15px] text-[#21314d] outline-none placeholder:text-[#94a3b8] focus:border-[#8fb9e1] focus:bg-white"
-                  />
-                </div>
-              ) : null}
-
               <div>
                 <label className="mb-2 block text-sm font-semibold text-[#4e5f7a]">
                   Email
@@ -221,7 +168,7 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
                   type="email"
                   value={form.email}
                   onChange={(event) => updateField("email", event.target.value)}
-                  placeholder="user@workspace.app"
+                  placeholder="user@aksentt.app"
                   className="h-12 w-full rounded-[16px] border border-[#d7e0ee] bg-[#f7fafe] px-4 text-[15px] text-[#21314d] outline-none placeholder:text-[#94a3b8] focus:border-[#8fb9e1] focus:bg-white"
                 />
               </div>
@@ -234,30 +181,28 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
                   type="password"
                   value={form.password}
                   onChange={(event) => updateField("password", event.target.value)}
-                  placeholder={mode === "login" ? "Enter your password" : "Choose a password"}
+                  placeholder="Enter your password"
                   className="h-12 w-full rounded-[16px] border border-[#d7e0ee] bg-[#f7fafe] px-4 text-[15px] text-[#21314d] outline-none placeholder:text-[#94a3b8] focus:border-[#8fb9e1] focus:bg-white"
                 />
               </div>
 
-              {mode === "login" ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsForgotOpen((current) => !current);
-                    setForgotMessage("");
-                    setError("");
-                    setForgotForm((current) => ({
-                      ...current,
-                      email: form.email || current.email,
-                    }));
-                  }}
-                  className="text-sm font-semibold text-[#2473c1]"
-                >
-                  Forgot password?
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsForgotOpen((current) => !current);
+                  setForgotMessage("");
+                  setError("");
+                  setForgotForm((current) => ({
+                    ...current,
+                    email: form.email || current.email,
+                  }));
+                }}
+                className="text-sm font-semibold text-[#157f86]"
+              >
+                Forgot password?
+              </button>
 
-              {mode === "login" && isForgotOpen ? (
+              {isForgotOpen ? (
                 <div className="auth-forgot-panel rounded-[20px] border border-[#dfe7f2] bg-[#f7fafe] p-4">
                   <p className="text-sm font-semibold text-[#28415f]">Reset password</p>
                   <div className="mt-4 space-y-3">
@@ -279,7 +224,7 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
                       type="button"
                       onClick={handleForgotPassword}
                       disabled={isSubmitting}
-                      className="rounded-[14px] bg-[#2473c1] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[14px] bg-[linear-gradient(135deg,#157f86_0%,#10656a_100%)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Reset password
                     </button>
@@ -301,13 +246,9 @@ const AuthPage = ({ onAuthenticated, onToggleTheme, theme }) => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="rounded-[16px] bg-[#2473c1] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(36,115,193,0.25)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-[16px] bg-[linear-gradient(135deg,#157f86_0%,#10656a_100%)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(21,127,134,0.25)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmitting
-                    ? "Please wait..."
-                    : mode === "login"
-                    ? "Sign in"
-                    : "Create account"}
+                  {isSubmitting ? "Please wait..." : "Sign in"}
                 </button>
 
               </div>

@@ -18,8 +18,5 @@ A fully responsive Email Replica Application simulating real-world email client 
 ## 🎯 Purpose
 To replicate a real-world email system while integrating productivity features for better task and team management.
 
-## 📸 Screenshots
-(Add your images here)
-
 ## 🔗 GitHub
 https://github.com/Shraddhaa789/Email-System
